@@ -118,3 +118,12 @@ Jika Anda mengalami masalah atau memiliki pertanyaan, silakan buka issue di repo
 ## Disclaimer
 
 Penggunaan bot ini adalah risiko Anda sendiri. Pastikan Anda memahami sepenuhnya cara kerja bot dan risiko yang terkait dengan penggunaannya di jaringan blockchain.
+
+# SUPPORT
+
+Want to support me for creating another bot ?
+buy me a coffee on
+
+EVM : `0x3E0BD1156172c03E497157838f218CDF77Ab2885`
+
+SOLANA : `4DMvckFnSrm7fymVaPrXULrCq4h1yvfTWq5aHXLpLKsn`
