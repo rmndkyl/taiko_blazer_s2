@@ -7,13 +7,13 @@ Bot ini digunakan untuk melakukan operasi deposit dan withdraw otomatis pada jar
 1. Clone repositori ini:
 
    ```
-   git clone https://github.com/rmndkyl/taiko_bot_s2.git
+   git clone https://github.com/rmndkyl/taiko_blazer_s2.git
    ```
 
 2. Masuk ke direktori proyek:
 
    ```
-   cd taiko_bot_s2
+   cd taiko_blazer_s2
    ```
 
 3. Instal dependensi:
@@ -26,6 +26,8 @@ Bot ini digunakan untuk melakukan operasi deposit dan withdraw otomatis pada jar
    ```
    RPC_URL=https://rpc.taiko.tools/
    CONTRACT_ADDRESS=0xA51894664A773981C6C112C43ce576f315d5b1B6
+   TELEGRAM_BOT_TOKEN=xxxx
+   TELEGRAM_CHAT_ID=xxxxx
    PRIVATE_KEY_1=your_first_private_key_here
    PRIVATE_KEY_2=your_second_private_key_here
    PRIVATE_KEY_3=your_third_private_key_here
@@ -39,14 +41,15 @@ Buka file `config.json` dan sesuaikan pengaturan berikut sesuai kebutuhan Anda:
 
 ```json
 {
-  "iterations": 70,
+  "amount_min": "0.0001",
+  "amount_max": "0.001",
+  "gasPrice": "0.18",
+  "iterations": 50,
   "interval": 30,
   "timezone": "Asia/Jakarta",
-  "scheduledTime": "07:00",
-  "gasPrice": "0.09",
-  "amount_min": "0.0001",
-  "amount_max": "0.001"
+  "scheduledTime": "07:10"
 }
+
 ```
 
 - `iterations`: Jumlah total iterasi yang akan dijalankan oleh bot
