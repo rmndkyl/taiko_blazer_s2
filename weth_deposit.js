@@ -4,7 +4,7 @@ const fs = require("fs");
 
 // Konfigurasi
 const provider = new ethers.providers.JsonRpcProvider(
-  process.env.RPC_URL || "https://rpc.taiko.tools/"
+  process.env.RPC_URL || "https://167000.rpc.thirdweb.com/"
 );
 
 // Private key dari wallet Anda
