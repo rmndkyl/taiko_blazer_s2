@@ -1,3 +1,4 @@
+// weth.js
 require("dotenv").config();
 const { exec } = require("child_process");
 const util = require("util");
@@ -5,36 +6,18 @@ const fs = require("fs");
 const schedule = require("node-schedule");
 const moment = require("moment-timezone");
 const axios = require("axios");
+const { ethers } = require("ethers");
 
 const execPromise = util.promisify(exec);
-
-// Baca konfigurasi
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
+let isOperationRunning = false;
+let completedIterations = 0;
+let totalFeesWei = ethers.BigNumber.from(0);
 
-// Fungsi untuk mendapatkan semua private keys dari .env
 function getPrivateKeys() {
   return Object.keys(process.env)
     .filter((key) => key.startsWith("PRIVATE_KEY_"))
     .map((key) => process.env[key]);
-}
-
-async function runCommand(command, env) {
-  try {
-    const { stdout, stderr } = await execPromise(command, {
-      env: { ...process.env, ...env },
-    });
-    return {
-      output: stdout,
-      error: stderr,
-      retval: 0,
-    };
-  } catch (error) {
-    return {
-      output: error.stdout,
-      error: error.stderr,
-      retval: error.code,
-    };
-  }
 }
 
 function sleep(ms) {
@@ -74,86 +57,156 @@ async function sendTelegramNotification(message) {
   }
 }
 
+async function getEthToUsdRate() {
+  try {
+    const response = await axios.get(
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+    );
+    return response.data.ethereum.usd;
+  } catch (error) {
+    console.error("Failed to fetch ETH to USD rate:", error.message);
+    return null;
+  }
+}
+
+async function runCommand(command, env) {
+  try {
+    const { stdout, stderr } = await execPromise(command, {
+      env: { ...process.env, ...env },
+    });
+    return {
+      output: stdout,
+      error: stderr,
+      retval: 0,
+    };
+  } catch (error) {
+    return {
+      output: error.stdout,
+      error: error.stderr,
+      retval: error.code,
+    };
+  }
+}
+
+function extractFeeFromOutput(output) {
+  const feeMatch = output.match(/Transaction fee: (\d+(\.\d+)?) ETH/);
+  if (feeMatch) {
+    return ethers.utils.parseEther(feeMatch[1]);
+  }
+  return null;
+}
+
+async function processWallet(privateKey, iteration, walletIndex, interval) {
+  const env = { PRIVATE_KEY: privateKey };
+  console.log(
+    `[${getCurrentServerTime()}] Processing wallet ${
+      walletIndex + 1
+    } - Iteration ${iteration + 1}`
+  );
+
+  // Deposit
+  console.log("Running deposit...");
+  const depositResult = await runCommand("node weth_deposit.js", env);
+  console.log(depositResult.output);
+
+  if (depositResult.retval === 0) {
+    const depositFee = extractFeeFromOutput(depositResult.output);
+    if (depositFee) {
+      totalFeesWei = totalFeesWei.add(depositFee);
+    }
+
+    // Wait after deposit
+    console.log(`Waiting ${interval} seconds before withdraw...`);
+    await sleep(interval * 1000);
+
+    // Withdraw
+    console.log("Running withdraw...");
+    const withdrawResult = await runCommand("node weth_withdraw.js", env);
+    console.log(withdrawResult.output);
+
+    if (withdrawResult.retval === 0) {
+      const withdrawFee = extractFeeFromOutput(withdrawResult.output);
+      if (withdrawFee) {
+        totalFeesWei = totalFeesWei.add(withdrawFee);
+      }
+      completedIterations++;
+      return true;
+    }
+  }
+  return false;
+}
+
 async function main() {
   const iterations = config.iterations || 70;
   const interval = config.interval || 30;
   const privateKeys = getPrivateKeys();
 
+  isOperationRunning = true;
+  completedIterations = 0;
+  totalFeesWei = ethers.BigNumber.from(0);
+
+  console.log(
+    `[${getCurrentServerTime()}] Starting operations with configuration:`
+  );
+  console.log(
+    JSON.stringify(
+      { ...config, wallets: `${privateKeys.length} wallets` },
+      null,
+      2
+    )
+  );
+
   for (let i = 0; i < iterations; i++) {
     console.log(
-      `[${getCurrentServerTime()}] Iteration ${i + 1} of ${iterations}`
+      `[${getCurrentServerTime()}] Starting iteration ${i + 1} of ${iterations}`
     );
 
     for (let j = 0; j < privateKeys.length; j++) {
-      const privateKey = privateKeys[j];
-      console.log(
-        `[${getCurrentServerTime()}] Processing wallet ${j + 1} of ${
-          privateKeys.length
-        }`
-      );
+      const success = await processWallet(privateKeys[j], i, j, interval);
 
-      const env = { PRIVATE_KEY: privateKey };
-
-      console.log("Running deposit...");
-      const depositResult = await runCommand("node weth_deposit.js", env);
-      console.log(depositResult.output);
-
-      if (depositResult.retval === 0) {
-        console.log(
-          `Deposit successful for wallet ${
-            j + 1
-          }, waiting for ${interval} seconds...`
-        );
-        await sleep(interval * 1000);
-
-        console.log("Running withdraw...");
-        const withdrawResult = await runCommand("node weth_withdraw.js", env);
-        console.log(withdrawResult.output);
-
-        if (withdrawResult.retval === 0) {
-          console.log(`Withdraw successful for wallet ${j + 1}.`);
-        } else {
-          console.log(`Withdraw failed for wallet ${j + 1}.`);
-        }
-      } else {
-        console.log(`Deposit failed for wallet ${j + 1}.`);
-      }
-
-      if (j < privateKeys.length - 1) {
-        console.log(
-          `Waiting for ${interval} seconds before processing next wallet...`
-        );
+      if (success && j < privateKeys.length - 1) {
+        console.log(`Waiting ${interval} seconds before next wallet...`);
         await sleep(interval * 1000);
       }
     }
 
     if (i < iterations - 1) {
-      console.log(`Waiting for ${interval} seconds before next iteration...`);
+      console.log(`Waiting ${interval} seconds before next iteration...`);
       await sleep(interval * 1000);
     }
   }
 
-  console.log(
-    `[${getCurrentServerTime()}] All iterations completed for all wallets.`
-  );
+  await sendFinalReport();
+  isOperationRunning = false;
+}
 
-  // Kirim notifikasi Telegram setelah semua iterasi selesai
+async function sendFinalReport() {
+  const totalFeesEth = ethers.utils.formatEther(totalFeesWei);
+  const ethToUsdRate = await getEthToUsdRate();
+  let feeMessage = `${Number(totalFeesEth).toFixed(5)} ETH`;
+
+  if (ethToUsdRate) {
+    const totalFeesUsd = (parseFloat(totalFeesEth) * ethToUsdRate).toFixed(2);
+    feeMessage += ` ($${totalFeesUsd})`;
+  }
+
   const notificationMessage = `
 <b>🎉 Tugas Otomatis Selesai</b>
 
 Halo! Saya senang memberitahu Anda bahwa tugas otomatis telah selesai dilaksanakan.
 
 <b>📊 Ringkasan:</b>
-• Total Iterasi: ${iterations}
-• Jumlah Wallet: ${privateKeys.length}
+• Total Iterasi Berhasil: ${completedIterations}
+• Jumlah Wallet: ${getPrivateKeys().length}
 • Waktu Selesai: ${getCurrentServerTime()}
+• Total Biaya Transaksi: ${feeMessage}
 
-Semua operasi deposit dan penarikan telah berhasil dilakukan sesuai dengan konfigurasi yang ditetapkan. Jika Anda ingin melihat detail lebih lanjut, silakan periksa log aplikasi.
+Semua operasi deposit dan penarikan telah selesai dilakukan sesuai dengan konfigurasi yang ditetapkan.
 
-Terima kasih atas perhatian Anda. Jika ada pertanyaan atau masalah, jangan ragu untuk menghubungi tim dukungan @rmndkyl.
+Terima kasih atas perhatian Anda. Jika ada pertanyaan atau masalah, jangan ragu untuk menghubungi tim dukungan @caraka17.
 
 <i>Pesan ini dikirim secara otomatis oleh sistem.</i>
-  `;
+`;
 
   await sendTelegramNotification(notificationMessage);
 }
@@ -188,24 +241,43 @@ function scheduleTask() {
     `[${getCurrentServerTime()}] Task scheduled. Waiting for execution time...`
   );
 
-  const now = moment().tz(timezone);
-  const nextExecution = moment()
-    .tz(timezone)
-    .set({ hour: scheduledHour, minute: scheduledMinute });
-  if (nextExecution.isBefore(now)) {
-    nextExecution.add(1, "day");
+  function updateCountdown() {
+    if (!isOperationRunning) {
+      const now = moment().tz(timezone);
+      let nextExecution = moment()
+        .tz(timezone)
+        .set({ hour: scheduledHour, minute: scheduledMinute, second: 0 });
+
+      if (nextExecution.isSameOrBefore(now)) {
+        nextExecution.add(1, "day");
+      }
+
+      const duration = moment.duration(nextExecution.diff(now));
+      const hours = duration.hours().toString().padStart(2, "0");
+      const minutes = duration.minutes().toString().padStart(2, "0");
+      const seconds = duration.seconds().toString().padStart(2, "0");
+
+      process.stdout.write(
+        `\r[${getCurrentServerTime()}] Next execution in: ${hours}:${minutes}:${seconds}`
+      );
+    }
   }
-  const timeUntilExecution = nextExecution.diff(now);
-  console.log(
-    `Next execution will be in approximately ${moment
-      .duration(timeUntilExecution)
-      .humanize()}`
-  );
+
+  updateCountdown();
+  const countdownInterval = setInterval(updateCountdown, 1000);
+
+  job.on("scheduled", function () {
+    clearInterval(countdownInterval);
+    console.log("\n" + `[${getCurrentServerTime()}] Task executed.`);
+    scheduleTask();
+  });
 }
 
+// Start scheduling task
 scheduleTask();
 
+// Handle program termination
 process.on("SIGINT", function () {
-  console.log(`[${getCurrentServerTime()}] Script terminated.`);
+  console.log(`\n[${getCurrentServerTime()}] Script terminated.`);
   process.exit();
 });
