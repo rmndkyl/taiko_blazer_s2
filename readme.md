@@ -24,7 +24,7 @@ Bot ini digunakan untuk melakukan operasi deposit dan withdraw otomatis pada jar
 
 4. Buat file `.env` di root direktori proyek dan tambahkan konfigurasi berikut:
    ```
-   RPC_URL=https://rpc.taiko.tools/
+   RPC_URL=https://167000.rpc.thirdweb.com/
    CONTRACT_ADDRESS=0xA51894664A773981C6C112C43ce576f315d5b1B6
    TELEGRAM_BOT_TOKEN=xxxx
    TELEGRAM_CHAT_ID=xxxxx
