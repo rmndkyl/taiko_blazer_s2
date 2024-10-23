@@ -1,5 +1,7 @@
 # Taiko TrailBlazer Bot
 
+This is bot from [@Caraka17](https://t.me/caraka17)
+
 Bot ini digunakan untuk melakukan operasi deposit dan withdraw otomatis pada jaringan Taiko dengan dukungan untuk multiple wallets.
 
 ## Persiapan
